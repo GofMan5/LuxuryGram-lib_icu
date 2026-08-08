@@ -558,4 +558,7 @@ target_compile_definitions(icu_regex_minimal PRIVATE
 if(MSVC)
  # otherwise "too many characters in constant" will occur in uchar.cpp
  target_compile_options(icu_regex_minimal PRIVATE "/utf-8")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+ # ICU 78 implements ucnv_clone through its deprecated compatibility helper.
+ target_compile_options(icu_regex_minimal PRIVATE "-Wno-error=deprecated-declarations")
 endif()
