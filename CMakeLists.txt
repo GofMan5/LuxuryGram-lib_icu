@@ -494,18 +494,22 @@ target_include_directories(icu_regex_minimal
 
 function(embed_binary_data TARGET_NAME VAR_NAME INPUT_FILE)
  set(OUTPUT_H "${CMAKE_CURRENT_BINARY_DIR}/generated/${VAR_NAME}.h")
- set(OUTPUT_C "${CMAKE_CURRENT_BINARY_DIR}/generated/${VAR_NAME}.c")
-
-
- file(READ "${INPUT_FILE}" file_hex HEX)
-
- string(REGEX MATCHALL "([0-9a-fA-F]{2})" file_bytes "${file_hex}")
- set(c_array_content "")
- foreach(byte ${file_bytes})
-  set(c_array_content "${c_array_content}0x${byte},")
- endforeach()
+ set(OUTPUT_C "${CMAKE_CURRENT_BINARY_DIR}/generated/${VAR_NAME}.cpp")
+ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${INPUT_FILE}")
 
  file(SIZE "${INPUT_FILE}" file_size)
+ if(file_size EQUAL 0)
+  message(FATAL_ERROR "Cannot embed empty ICU data: ${INPUT_FILE}")
+ endif()
+ file(READ "${INPUT_FILE}" file_hex HEX)
+ # CMake's regex dialect has no {2}; transform in one pass, not by
+ # repeatedly copying the growing multi-megabyte initializer in a loop.
+ string(REGEX REPLACE "([0-9a-fA-F][0-9a-fA-F])" "0x\\1," c_array_content "${file_hex}")
+ string(LENGTH "${c_array_content}" array_length)
+ math(EXPR expected_length "${file_size} * 5")
+ if(NOT array_length EQUAL expected_length)
+  message(FATAL_ERROR "Incomplete embedded ICU data: ${INPUT_FILE}")
+ endif()
 
  set(header_content "
 #pragma once
@@ -521,12 +525,12 @@ extern const size_t ${VAR_NAME}_size;
 ")
  set(source_content "
 #include \"${VAR_NAME}.h\"
-const unsigned char ${VAR_NAME}[${file_size}] = { ${c_array_content} };
+alignas(16) const unsigned char ${VAR_NAME}[${file_size}] = { ${c_array_content} };
 const size_t ${VAR_NAME}_size = ${file_size};
 ")
 
- file(WRITE "${OUTPUT_H}" "${header_content}")
- file(WRITE "${OUTPUT_C}" "${source_content}")
+ file(CONFIGURE OUTPUT "${OUTPUT_H}" CONTENT "${header_content}" @ONLY)
+ file(CONFIGURE OUTPUT "${OUTPUT_C}" CONTENT "${source_content}" @ONLY)
 
  target_sources(${TARGET_NAME} PRIVATE "${OUTPUT_C}")
  target_include_directories(${TARGET_NAME} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
